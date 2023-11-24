@@ -2,11 +2,27 @@ const gql = require("graphql-tag");
 const { EvmChain } = require("@moralisweb3/common-evm-utils");
 const { ethers } = require("ethers");
 const { minProfit, winRate, minPnl, APPOLO } = require("../config/config.js");
-
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const provider = ethers.getDefaultProvider(
-  "https://mainnet.infura.io/v3/a4319123753b432894ab65c23fa47186"
+  "https://rpc.ankr.com/eth/709ed46cfa73f4def46d75a198bd5bc78fafa7dff95a4dc8c40d1af6660a4681"
 );
+const nodeProvider = new ethers.providers.JsonRpcProvider("https://eth.getblock.io/7c14aadb-9524-4852-a2c1-5036e1f9c6f4/mainnet/");
+async function getcurrentstamp() {
+  try {
 
+    let latestBlockNumber = await provider.getBlockNumber();
+    let block = await provider.getBlock(latestBlockNumber);
+    console.log(block.timestamp);
+
+    let latestTimeStampInMs = block.timestamp * 1000;
+    return latestTimeStampInMs
+  } catch (error) {
+    console.log("error", error);
+    return Date.now();
+  }
+
+
+}
 
 async function getPool(
   launchtime,
@@ -18,12 +34,14 @@ async function getPool(
   endTo,
   chain = EvmChain.ETHEREUM
 ) {
-  const startFrom = Math.floor((Date.now() - launchtime * 60 * 1000) / 1000);
+  const timestamp = await getcurrentstamp();
+  console.log("current timestamp", timestamp);
+  const startFrom = Math.floor((timestamp - launchtime * 60 * 1000) / 1000);
 
   const minTx = Number(minbuys) + Number(minsells);
   const queryv3 = `
     {
-        pools(first:100,where:{createdAtTimestamp_gt:${startFrom},
+        pools(first:50,where:{createdAtTimestamp_gt:${startFrom},
                     createdAtTimestamp_lt:${endTo},
                     totalValueLockedETH_lt:${maxlp},
                     totalValueLockedETH_gt:${minlp},
@@ -61,7 +79,7 @@ async function getPool(
   `;
   const queryv2 = `
   {
-        pairs(first:100,where:{
+        pairs(first:50,where:{
             createdAtTimestamp_gt:${startFrom},
             reserveETH_gt:${Number(minlp) * 2},
             reserveETH_lt:${Number(maxlp) * 2},
@@ -278,11 +296,8 @@ async function get_token_price_eth(token_address, pool_address, version) {
 
 async function getTotalSupply(tokenAddress) {
   try {
-    const provider = ethers.getDefaultProvider(
-      "https://mainnet.infura.io/v3/c558761fd1204a879c54d5187f0ef53f"
-    );
     const abi = ["function totalSupply() view returns (uint256)"];
-    const contract = new ethers.Contract(tokenAddress, abi, provider);
+    const contract = new ethers.Contract(tokenAddress, abi, nodeProvider);
     const totalSupply = await contract.totalSupply();
     return totalSupply.toString();
   } catch (error) {
@@ -292,7 +307,6 @@ async function getTotalSupply(tokenAddress) {
 }
 // Check erc20 tx count, it should be less than 1
 async function checkFresh(targetAddress, version) {
-  let swaps = [];
   try {
     const querySwapV2 = `
         query {
@@ -333,9 +347,8 @@ async function checkFresh(targetAddress, version) {
       let blockNumber = books[0].transaction.blockNumber;
       targetBlockNumber = parseInt(blockNumber) - 1; // Replace with your desired block number
     }
-    const apiKey = 'FWMTC7FVD2YRQZA8WRSPD5N37V7TI728T3';
-    // const targetAddress = '0x2758Ef017f8A3a5A340738CB7A47d0edD55bc67f';
-    // Etherscan API endpoint for retrieving transactions
+    console.log("targetBlockNumber", targetBlockNumber, targetAddress)
+    const apiKey = 'TQFRWS7IZAZTZE8XYXKCAI6R17BYISAP2D';
     const apiUrl = 'https://api.etherscan.io/api';
 
     const queryParams = new URLSearchParams({
@@ -358,8 +371,9 @@ async function checkFresh(targetAddress, version) {
 
 
   } catch (error) {
-    console.log("fresh error:",error);
-    return false;
+    console.log("fresh error:", error);
+    await delay(1000);
+    return checkFresh(targetAddress, version);
   }
 
 }
@@ -372,6 +386,7 @@ async function getSwaps(lpaddress, trader_address, version) {
             ) {
                 from
                 transaction{
+                    id
                     blockNumber
                     swaps{
                         id
@@ -426,8 +441,18 @@ async function getSwaps(lpaddress, trader_address, version) {
     const data0 = await appoloClient.query({
       query: query,
     });
+    let swaps = [];
+    let newSwaps = [];
+
     if (data0?.data?.swaps.length > 0) {
-      return data0?.data?.swaps;
+      swaps = data0?.data?.swaps;
+      swaps.forEach(swap => {
+        let txId = swap?.transaction?.id;
+        let existFlag = newSwaps.some(obj => obj?.transaction?.id === txId);
+        if (!existFlag)
+          newSwaps.push(swap);
+      });
+      return newSwaps;
     } else {
       return [];
     }
@@ -437,7 +462,10 @@ async function getSwaps(lpaddress, trader_address, version) {
   return [];
 }
 
+
+
 const getTrading = async (lpaddress, trader_address, token, version) => {
+  console.log(trader_address, lpaddress, version);
   const books = await getSwaps(lpaddress, trader_address, version);
   let position = {},
     trades = [],
@@ -449,8 +477,7 @@ const getTrading = async (lpaddress, trader_address, token, version) => {
     totalBuy = 0,
     initEth = 0;
 
-  const price_eth = await get_token_price_eth(token, lpaddress, version)
-
+  const price_eth = await get_token_price_eth(token, lpaddress, version);
   for (let i = books.length - 1; i >= 0; i--) {
     const tr = books[i];
     let tradingAmount, usdAmount, ethAmount, side, rate;
@@ -565,16 +592,17 @@ const getTrading = async (lpaddress, trader_address, token, version) => {
 
   const totalTrades = trades.length;
   winCounter + lossCounter;
+  console.log("Total trades", totalTrades)
   if (totalTrades == 0) {
     winRate = 0;
   } else {
     winRate = (winCounter / totalTrades) * 100;
   }
-  const remainProfit = position.balance > 0 ? (price_eth.valueToken - position.avg) * position.balance * price_eth.valueEth : 0;
-  const remainRoi = initEth == 0 ? 0 : position.balance * price_eth.valueToken / initEth;
+  // const remainProfit = position.balance > 0 ? (price_eth.valueToken - position.avg) * position.balance * price_eth.valueEth : 0;
+  // const remainRoi = initEth == 0 ? 0 : position.balance * price_eth.valueToken / initEth;
 
-  totalProfit_roi = totalProfit_roi + remainRoi;
-  totalProfit = totalProfit + remainProfit;
+  // totalProfit_roi = totalProfit_roi + remainRoi;
+  // totalProfit = totalProfit + remainProfit;
   return {
     position,
     trades,
@@ -586,8 +614,9 @@ const getTrading = async (lpaddress, trader_address, token, version) => {
   };
 };
 
+// getTrading("0xb55daf7ba9c69b533e354f1d1f8e0b292a102622", "0x6177d9D461E47e21366A2b271aB01951325bfFF8", "0x23A2164d482Fd2fec9C2d0B66528D42feE7b8817", 2);
+
 const checkMEV = async (trader_address, version) => {
-  return false;
   try {
     const querySwapV2 = `
           query {
@@ -655,7 +684,7 @@ async function test() {
   const balance = await getEthBalance(trader, block);
   console.log({ balance });
   console.log({ balance });
-  
+
   console.log(
     await getTrading(
       lp,

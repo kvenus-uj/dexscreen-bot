@@ -39,8 +39,6 @@ function saveLpAddress(newData) {
   return newData;
 }
 
-saveLpAddress({"test":1});
-
 function saveWalletsAddress(newData) {
   const filepath = "./walletData.json";
   // if (fs.existsSync(filepath)) {

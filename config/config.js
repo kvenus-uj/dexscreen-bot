@@ -12,7 +12,7 @@ const subgraph = {
 
 module.exports = {
   tg_api: "6541860767:AAHi65eyMtImEfTQQAgGkvBdJW-MJTW4qOY",
-  chat_id: -4045814241, //4085571318,
+  chat_id: -4020222678, //4085571318,
   morails_key:
     "3pPLbAJU77QC0ASflpRvGVCWEjHNSCpwT3k7OtrhSMo2iYo4Y2GykSLtQtlyfBYO",
   duneapikey: "umYKvUbhI4m7xCJMFmj7qQo0QNvozglu",
@@ -49,7 +49,7 @@ module.exports = {
   pnlLimit: 1000,
   trade_ago_days: 60,
   minProfit: 5000,
-  winRate: 80,
+  winRate: 70,
   minPnl: 3000,
   firstProfit: 2000,
 };

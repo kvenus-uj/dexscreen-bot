@@ -1,8 +1,6 @@
 const ethers = require("ethers");
 
-const provider = ethers.getDefaultProvider(
-  "https://mainnet.infura.io/v3/a4319123753b432894ab65c23fa47186"
-);
+const provider = new ethers.providers.JsonRpcProvider("https://eth.getblock.io/7c14aadb-9524-4852-a2c1-5036e1f9c6f4/mainnet/");
 
 // const provider = ethers.getDefaultProvider("https://rpc.ankr.com/eth");
 

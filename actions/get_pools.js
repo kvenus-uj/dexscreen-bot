@@ -87,18 +87,15 @@ function select_token(pool_data) {
 
 async function get_token_info(pool_data) {
   const token_info = select_token(pool_data);
-
   const token_price = await get_token_price(
     token_info.address,
     token_info.pool_address,
     token_info.version
   );
-
   const token_mcap =
     Number(
       (await getTotalSupply(token_info.address)) / 10 ** token_info.decimals
     ) * token_price;
-
   const final_token_info = {
     ...token_info,
     token_price: token_price,

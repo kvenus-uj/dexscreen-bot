@@ -62,6 +62,7 @@ async function start_bot() {
 
 
 async function send_notification() {
+  console.log("starting notification");
   const wallet_file_path = "./walletData.json";
   let wallet_data = [];
   if (fs.existsSync(wallet_file_path)) {

@@ -1,10 +1,10 @@
 const fs = require("fs");
-const { checkMEV,getTrading,checkFresh } = require("../utils/subgraph");
+const { checkMEV, getTrading, checkFresh } = require("../utils/subgraph");
 const { getTopWalletAddress } = require("./getTopTraderfromURL");
 const { minProfit, winRate, minPnl } = require("../config/config.js");
+const { sendWalletMessage } = require("./messages.js");
 
 const getWallets = async (lpData) => {
-  const totalWallets = [];
   let existWallets = [];
   const filepath = "./walletData.json";
   if (fs.existsSync(filepath)) {
@@ -23,10 +23,9 @@ const getWallets = async (lpData) => {
     const wallets = await getTopWalletAddress(lpData[i].pool_address);
     let newWallets = [];
     for (let index = 0; index < wallets.length; index++) {
-      const address_index = existWallets.findIndex(
-        (wallet) => wallet === wallets[index]
-      );
-      if (address_index === -1) {
+      const notified = existWallets.some(wallet => wallet.address === wallets[index]);
+      console.log(wallets[index], notified);
+      if (!notified) {
         newWallets.push({
           address: wallets[index],
           top_rate: index + 1,
@@ -38,12 +37,11 @@ const getWallets = async (lpData) => {
     }
     let checkedWallets = [];
     for (let index = 0; index < newWallets.length; index++) {
-      
+
       const mev = await checkMEV(newWallets[index].address, lpData[i].version);
       if (!mev) {
         checkedWallets.push(newWallets[index]);
       }
-      console.log('Checking MEV BOT ',index,'/',newWallets.length,mev?"True":"False");
     }
     // console.log('Completed check MEV bot');
     if (checkedWallets.length > 0) {
@@ -52,45 +50,46 @@ const getWallets = async (lpData) => {
           checkedWallets[j].address,
           lpData[i].version
         );
-        
+
         let reason = "";
         let passed = false;
-        if(freshWallet){
+        if (freshWallet) {
           reason = "Fresh wallet in Top trades";
           passed = true;
-        }else{
+        } else {
           const TradingState = await getTrading(
             lpData[i].pool_address,
             checkedWallets[j].address,
             lpData[i].address,
             lpData[i].version
           );
-          if(TradingState.totalTrades>0){
-            if(TradingState.totalProfit/TradingState.totalBuy>=minProfit){
-              passed=true;
-              reason = ` Average profit is $${(TradingState.totalProfit/TradingState.totalTrades).toFixed(2)}`;
+          if (TradingState.totalTrades > 0) {
+            if (TradingState.totalProfit / TradingState.totalBuy >= minProfit) {
+              passed = true;
+              reason = ` Average profit is $${(TradingState.totalProfit / TradingState.totalTrades).toFixed(2)}`;
             }
-            if(TradingState.winRate>=winRate){
-              if(passed) reason = reason+",";
-              passed=true;
-              reason =reason+ ` Win rate is ${TradingState.winRate.toFixed(2)}%`;
+            if (TradingState.winRate >= winRate) {
+              if (passed) reason = reason + ",";
+              passed = true;
+              reason = reason + ` Win rate is ${TradingState.winRate.toFixed(2)}%`;
             }
-            if(TradingState.totalProfit_roi*100>=minPnl){
-              if(passed) reason = reason+",";
-              passed=true;
-              reason = ` Total PNL by roi is ${(TradingState.totalProfit_roi*100).toFixed(2)}%`;
+            if (TradingState.totalProfit_roi * 100 >= minPnl) {
+              if (passed) reason = reason + ",";
+              passed = true;
+              reason = ` Total PNL by roi is ${(TradingState.totalProfit_roi * 100).toFixed(2)}%`;
             }
           }
         }
         if (passed) {
-          console.log({reason,passed,address:checkedWallets[j].address})
+          console.log({ reason, passed, address: checkedWallets[j].address })
           checkedWallets[j].reason = reason;
-          totalWallets.push(checkedWallets[j]);
+          existWallets.push(checkedWallets[j]);
+          sendWalletMessage(checkedWallets[j]);
         }
       }
     }
   }
-  return totalWallets;
+  return existWallets;
 };
 
 module.exports = {

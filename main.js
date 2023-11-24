@@ -1,12 +1,12 @@
-const { prepare_data } = require("./prepare_data");
-const { start_bot, send_notification } = require("./start_bot");
-
-const CronJob = require("cron").CronJob;
+const { prepareData } = require("./prepare_data");
+const cron = require('node-cron');
+require('events').EventEmitter.defaultMaxListeners = 15;
 
 async function start() {
-  await prepare_data();
-  send_notification();
-  setTimeout(start,4*3600*1000);
+  prepareData();
+  cron.schedule('*/30 * * * *', () => {
+    prepareData();
+  });
 }
 // const job = new CronJob(
 //   "00 00 00,12 * * *",

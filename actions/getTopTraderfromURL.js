@@ -17,7 +17,7 @@ async function getTopWalletAddress(pool_address) {
       while ((match = regexPattern.exec(data)) !== null) {
         matches.push(match[0]);
 
-        if (matches.length === 10) {
+        if (matches.length === 50) {
           break;
         }
       }

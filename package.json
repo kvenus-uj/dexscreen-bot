@@ -24,6 +24,7 @@
     "graphql": "^16.8.1",
     "graphql-tag": "^2.12.6",
     "moralis": "^2.22.5",
+    "node-cron": "^3.0.3",
     "pg": "^8.11.3",
     "puppeteer": "^19.7.2",
     "puppeteer-extra": "^3.3.6",
