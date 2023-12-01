@@ -1,8 +1,7 @@
 const ethers = require("ethers");
+const { nodeProviderUrl } = require("../config/config.js");
 
-const provider = new ethers.providers.JsonRpcProvider("https://eth.getblock.io/7c14aadb-9524-4852-a2c1-5036e1f9c6f4/mainnet/");
-
-// const provider = ethers.getDefaultProvider("https://rpc.ankr.com/eth");
+const provider = new ethers.providers.JsonRpcProvider(nodeProviderUrl);
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -12,7 +11,7 @@ let step_block = 10;
 
 let pool_data, callback;
 
-async function setMonitor(_pool_data, _blocknumber, _callback,wallet_data) {
+async function setMonitor(_pool_data, _blocknumber, _callback, wallet_data) {
   console.log("set monitor");
   pool_data = _pool_data;
   callback = _callback;
@@ -20,12 +19,12 @@ async function setMonitor(_pool_data, _blocknumber, _callback,wallet_data) {
   try {
     const lastblock = await provider.getBlockNumber();
     to_block = Math.min(lastblock, from_block + step_block);
-    console.log({from_block ,to_block})
+    console.log({ from_block, to_block })
     if (from_block <= lastblock) {
       console.log('start scan...')
-      const fromIndex =Math.min(100,pool_data.length-1); 
-      for (let index = fromIndex; index >=0; index--) {
-        console.log('scan for ',pool_data[index].symbol)
+      const fromIndex = Math.min(100, pool_data.length - 1);
+      for (let index = fromIndex; index >= 0; index--) {
+        console.log('scan for ', pool_data[index].symbol)
         const topics =
           pool_data[index].version == 3
             ? "0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67"
@@ -60,7 +59,7 @@ async function setMonitor(_pool_data, _blocknumber, _callback,wallet_data) {
   }
 }
 
-async function process_transaction(buyer_address, log, pool, version, callback,wallet_data) {
+async function process_transaction(buyer_address, log, pool, version, callback, wallet_data) {
   try {
     const { topics, data, raw, transactionHash } = log;
     let decoded;

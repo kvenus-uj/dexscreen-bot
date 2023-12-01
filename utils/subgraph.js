@@ -1,12 +1,25 @@
 const gql = require("graphql-tag");
 const { EvmChain } = require("@moralisweb3/common-evm-utils");
 const { ethers } = require("ethers");
-const { minProfit, winRate, minPnl, APPOLO } = require("../config/config.js");
+const axios = require('axios');
+const { Builder, By, Key, until } = require('selenium-webdriver');
+const chrome = require('selenium-webdriver/chrome');
+const { weht, APPOLO, providerUrl, nodeProviderUrl, etherscankey, apiUrl } = require("../config/config.js");
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const provider = ethers.getDefaultProvider(
-  "https://rpc.ankr.com/eth/709ed46cfa73f4def46d75a198bd5bc78fafa7dff95a4dc8c40d1af6660a4681"
-);
-const nodeProvider = new ethers.providers.JsonRpcProvider("https://eth.getblock.io/7c14aadb-9524-4852-a2c1-5036e1f9c6f4/mainnet/");
+const provider = ethers.getDefaultProvider(providerUrl);
+const nodeProvider = new ethers.providers.JsonRpcProvider(nodeProviderUrl);
+let options = new chrome.Options();
+options.addArguments("--headless");
+options.addArguments("--disable-gpu");
+options.addArguments("--window-size=1920x1080");
+options.addArguments("--disable-dev-shm-usage");
+options.addArguments("--no-sandbox");
+options.addArguments("--remote-debugging-port=9230");
+options.addArguments("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537");
+options.addArguments("--disable-blink-features");
+options.addArguments("--disable-blink-features=AutomationControlled");
+// let driver = new Builder().forBrowser("chrome").setChromeOptions(options).build();
+
 async function getcurrentstamp() {
   try {
 
@@ -20,8 +33,6 @@ async function getcurrentstamp() {
     console.log("error", error);
     return Date.now();
   }
-
-
 }
 
 async function getPool(
@@ -35,13 +46,12 @@ async function getPool(
   chain = EvmChain.ETHEREUM
 ) {
   const timestamp = await getcurrentstamp();
-  console.log("current timestamp", timestamp);
   const startFrom = Math.floor((timestamp - launchtime * 60 * 1000) / 1000);
 
   const minTx = Number(minbuys) + Number(minsells);
   const queryv3 = `
     {
-        pools(first:50,where:{createdAtTimestamp_gt:${startFrom},
+        pools(first:100,where:{createdAtTimestamp_gt:${startFrom},
                     createdAtTimestamp_lt:${endTo},
                     totalValueLockedETH_lt:${maxlp},
                     totalValueLockedETH_gt:${minlp},
@@ -79,7 +89,7 @@ async function getPool(
   `;
   const queryv2 = `
   {
-        pairs(first:50,where:{
+        pairs(first:100,where:{
             createdAtTimestamp_gt:${startFrom},
             reserveETH_gt:${Number(minlp) * 2},
             reserveETH_lt:${Number(maxlp) * 2},
@@ -306,50 +316,15 @@ async function getTotalSupply(tokenAddress) {
   }
 }
 // Check erc20 tx count, it should be less than 1
-async function checkFresh(targetAddress, version) {
+async function checkSwapWallet(targetAddress, poolAddress) {
   try {
-    const querySwapV2 = `
-        query {
-            swaps(
-              first:10,orderBy: timestamp, orderDirection: desc,where:{ from:"${targetAddress}"}
-            ) {
-              transaction{
-                blockNumber
-            }                
-             }
-            }        
-        `;
-
-    const querySwapV3 = `
-        query {
-            swaps(first:10,orderBy: timestamp, orderDirection: desc,where:{origin:"${targetAddress}"}
-            ) {
-              transaction{
-                blockNumber
-            }            
-             }
-            }   
-        `;
-
-
-    const query = gql(version == 2 ? querySwapV2 : querySwapV3);
-
-    const appoloClient = APPOLO(1, version);
-    const data0 = await appoloClient.query({
-      query: query,
-    });
-    if (data0?.data?.swaps.length > 1) {
+    let swaps2 = await getSwaps(targetAddress, 2)
+    let swaps3 = await getSwaps(targetAddress, 3)
+    if (swaps2.length + swaps3.length != 1)
       return false;
-    }
+    console.log("Total trade is only 1. Checking erc20 tx count.")
     let targetBlockNumber = 99999999999; // Replace with your desired block number
-    if (data0?.data?.swaps.length > 0) {
-      let books = data0?.data?.swaps;
-      let blockNumber = books[0].transaction.blockNumber;
-      targetBlockNumber = parseInt(blockNumber) - 1; // Replace with your desired block number
-    }
-    console.log("targetBlockNumber", targetBlockNumber, targetAddress)
-    const apiKey = 'TQFRWS7IZAZTZE8XYXKCAI6R17BYISAP2D';
-    const apiUrl = 'https://api.etherscan.io/api';
+    const apiKey = etherscankey;
 
     const queryParams = new URLSearchParams({
       module: 'account',
@@ -357,83 +332,76 @@ async function checkFresh(targetAddress, version) {
       address: targetAddress,
       startblock: 0, // Start from the first block
       endblock: targetBlockNumber,
-      sort: 'asc',
+      sort: 'desc',
       apikey: apiKey,
     });
-
-    const response = await fetch(`${apiUrl}?${queryParams}`);
-    const data = await response.json();
+    // const response = await fetch(`${apiUrl}?${queryParams}`);
+    const resp = await axios.get(`${apiUrl}?${queryParams}`, { keepAlive: true });
+    const data = resp.data;
     const transactions = data.result;
-
-    if (transactions.length > 0)
-      return false;
-    else return true;
-
-
+    if (transactions.length > 1) {
+      console.log("Transaction length is bigger than 1.")
+      return false
+    }
+    return true;
   } catch (error) {
-    console.log("fresh error:", error);
-    await delay(1000);
-    return checkFresh(targetAddress, version);
+    console.log("error:", error);
+    return false;
   }
-
 }
-async function getSwaps(lpaddress, trader_address, version) {
+async function getSwaps(tradeAddress, version) {
   try {
+    let currentTimestamp = parseInt(Date.now() / 1000 - 2592000);//1,month tx
+
     const querySwapV2 = `
-        query {
-            swaps(
-              first:1000,orderBy: timestamp, orderDirection: desc,where:{ from:"${trader_address}", pair: "${lpaddress}"}
-            ) {
-                from
-                transaction{
-                    id
-                    blockNumber
-                    swaps{
-                        id
-                    }
-                }                
-                pair{
-                  token0 {
-                    id
-                }
-                token1 {
-                    id
-                  }
-                }
-                amount0In,
-                amount0Out,
-                amount1In,
-                amount1Out,
-                amountUSD
-             }
-            }        
-        `;
+      query {
+        swaps(
+          first:1000,orderBy: pair__id , orderDirection: desc,where:{ from: "${tradeAddress}",timestamp_gt:"${currentTimestamp}"}
+        ) {
+          pair{
+            id
+            token0 {
+              id
+            }
+            token1 {
+                id
+            }
+          }
+          timestamp   
+            transaction{
+              id
+            }
+            amount0In,
+            amount1In
+            amountUSD
+        }
+      }   
+    `;
 
     const querySwapV3 = `
-        query {
-            swaps(first:1000,orderBy: timestamp, orderDirection: desc,where:{pool:"${lpaddress}",origin:"${trader_address}"}
-            ) {
-
-                origin
-                transaction{
-                    id
-                    blockNumber
-                    swaps{
-                        id
-                    }
-                }                
-                token0 {
-                  id
-                }
-                token1 {
-                  id
-                }
-                amount0
-                amount1
-                amountUSD
-             }
-            }   
-        `;
+      query {
+        swaps(first:1000,orderBy: pool__id,where:{origin:"${tradeAddress}"}
+        ) {
+           timestamp
+            origin
+            pool{
+              id
+            }
+            transaction{
+              id
+            }
+            token0 {
+              id
+            }
+            token1 {
+              id
+            }
+            amount0
+            amount1
+            amountUSD
+        }
+      }   
+      `;
 
     const query = gql(version == 2 ? querySwapV2 : querySwapV3);
 
@@ -446,12 +414,30 @@ async function getSwaps(lpaddress, trader_address, version) {
 
     if (data0?.data?.swaps.length > 0) {
       swaps = data0?.data?.swaps;
-      swaps.forEach(swap => {
+      for (let i = 0; i < swaps.length; i++) {
+        let swap = swaps[i];
         let txId = swap?.transaction?.id;
         let existFlag = newSwaps.some(obj => obj?.transaction?.id === txId);
-        if (!existFlag)
+        if (!existFlag) {
+          if (version == 2) {
+
+            if (swap.pair.token0.id.toLowerCase() == weht) {
+              swap["mode"] = parseFloat(swap.amount0In) > 0 ? "buy" : "sell";
+            } else {
+              swap["mode"] = parseFloat(swap.amount0In) > 0 ? "sell" : "buy";
+            }
+            swap.poolId = swap.pair.id;
+          } else {
+            if (swap.token0.id.toLowerCase() == weht) {
+              swap["mode"] = parseFloat(swap.amount0) > 0 ? "buy" : "sell";
+            } else {
+              swap["mode"] = parseFloat(swap.amount0) > 0 ? "sell" : "buy";
+            }
+            swap.poolId = swap.pool.id;
+          }
           newSwaps.push(swap);
-      });
+        }
+      }
       return newSwaps;
     } else {
       return [];
@@ -462,168 +448,113 @@ async function getSwaps(lpaddress, trader_address, version) {
   return [];
 }
 
+async function getTopAddress(lpaddress) {
 
-
-const getTrading = async (lpaddress, trader_address, token, version) => {
-  console.log(trader_address, lpaddress, version);
-  const books = await getSwaps(lpaddress, trader_address, version);
-  let position = {},
-    trades = [],
-    totalProfit = 0,
-    totalProfit_roi = 0,
-    winCounter = 0,
-    lossCounter = 0,
-    winRate = 0,
-    totalBuy = 0,
-    initEth = 0;
-
-  const price_eth = await get_token_price_eth(token, lpaddress, version);
-  for (let i = books.length - 1; i >= 0; i--) {
-    const tr = books[i];
-    let tradingAmount, usdAmount, ethAmount, side, rate;
-    usdAmount = Number(tr.amountUSD)
-    if (version == 2) {
-
-      if (tr.pair.token0.id.toLowerCase() == token.toLowerCase()) {//token0
-        if (tr.amount0In > 0) {
-          side = 'sell';
-          tradingAmount = tr.amount0In;
-          ethAmount = tr.amount1Out;
-        } else {
-          side = 'buy';
-          tradingAmount = tr.amount0Out;
-          ethAmount = tr.amount1In;
-
-        }
-      } else {//token1
-        if (tr.amount1In > 0) {
-          side = 'sell';
-          tradingAmount = tr.amount1In;
-          ethAmount = tr.amount0Out;
-        } else {
-          side = 'buy';
-          tradingAmount = tr.amount1Out;
-          ethAmount = tr.amount0In;
-        }
-      }
-    } else {
-      if (tr.token0.id.toLowerCase() == token.toLowerCase()) {//token0
-        if (tr.amount0 > 0) {
-          side = 'sell';
-          tradingAmount = tr.amount0;
-          ethAmount = -tr.amount1;
-        } else {
-          side = 'buy';
-          tradingAmount = -tr.amount0;
-          ethAmount = tr.amount1;
-        }
-      } else {//token1
-        if (tr.amount1 > 0) {
-          side = 'sell';
-          tradingAmount = tr.amount1;
-          ethAmount = -tr.amount0;
-        } else {
-          side = 'buy';
-          tradingAmount = -tr.amount1;
-          ethAmount = tr.amount0;
-        }
-      }
-
-    }
-    ethAmount = Number(ethAmount);
-    tradingAmount = Number(tradingAmount);
-    rate = ethAmount / tradingAmount;
-    ethRate = usdAmount / ethAmount;
-
-    if (side == "buy") {
-      totalBuy++;
-      let cum_quote = position.balance ? position.avg * position.balance : 0;
-      if (initEth == 0) {
-        initEth = await getEthBalance(trader_address, "0x" + (tr.transaction.blockNumber - 1).toString(16));
-      }
-      let newBalance = position.balance
-        ? position.balance + tradingAmount
-        : tradingAmount;
-
-      let avg = (cum_quote + ethAmount) / newBalance;
-
-      position = {
-        balance: newBalance,
-        avg,
-        initEth
-      };
-
-    } else {
-      if (position.balance && position.balance > tradingAmount) {
-        const open_price = position.avg;
-        const close_price = rate;
-        const amount = tradingAmount;
-
-        const profit = (close_price - open_price) * amount * ethRate;
-
-        if (profit > 0) {
-          winCounter++;
-        } else {
-          lossCounter++;
-        }
-        const profit_roi = ethAmount / initEth;
-        totalProfit = totalProfit + profit;
-        totalProfit_roi = totalProfit_roi + profit_roi;
-        const newBalance = position.balance - tradingAmount;
-
-        trades.push({
-          open_price,
-          close_price,
-          amount,
-          profit,
-          profit_roi,
-          closemode: newBalance <= 0.000001 ? "full" : "half",
-          last_balance: newBalance,
-        });
-        position = {
-          balance: newBalance,
-          avg: open_price,
-          initEth
-        };
-      }
-    }
-
-  }
-
-  const totalTrades = trades.length;
-  winCounter + lossCounter;
-  console.log("Total trades", totalTrades)
-  if (totalTrades == 0) {
-    winRate = 0;
-  } else {
-    winRate = (winCounter / totalTrades) * 100;
-  }
-  // const remainProfit = position.balance > 0 ? (price_eth.valueToken - position.avg) * position.balance * price_eth.valueEth : 0;
-  // const remainRoi = initEth == 0 ? 0 : position.balance * price_eth.valueToken / initEth;
-
-  // totalProfit_roi = totalProfit_roi + remainRoi;
-  // totalProfit = totalProfit + remainProfit;
-  return {
-    position,
-    trades,
-    totalProfit,
-    totalProfit_roi,
-    winRate,
-    totalTrades,
-    totalBuy
-  };
-};
-
-// getTrading("0xb55daf7ba9c69b533e354f1d1f8e0b292a102622", "0x6177d9D461E47e21366A2b271aB01951325bfFF8", "0x23A2164d482Fd2fec9C2d0B66528D42feE7b8817", 2);
-
-const checkMEV = async (trader_address, version) => {
   try {
+    await driver.get(`https://io.dexscreener.com/dex/log/amm/v2/uniswap/top/ethereum/${lpaddress}?q=0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2`);
+
+    const data = await driver.getPageSource();
+    let match;
+    let matches = [];
+    const regexPattern = /0x[a-fA-F0-9]{40}\b/g;
+    while ((match = regexPattern.exec(data)) !== null) {
+      matches.push(match[0]);
+
+      if (matches.length === 20) {
+        break;
+      }
+    }
+    console.log(matches);
+    return matches;
+  } catch {
+    return [];
+  }
+}
+
+
+const getTrading = async (targetAddress) => {
+  try {
+    let swaps2 = await getSwaps(targetAddress, 2);
+    let swaps3 = await getSwaps(targetAddress, 3);
+    let swaps = swaps2.concat(swaps3);
+    let trades = []
+    let trade = {};
+    let totalPnl = 0;
+    let winCount = 0;
+    let loseCount = 0;
+    // set fee for swap 10$
+    let totalFee = swaps.length * 10;
+    trade.pln = 0;
+    let initEth = 0;
+    let initTimestamp = 9999999999999999;
+    for (let i = 0; i < swaps.length; i++) {
+      swap = swaps[i];
+      if (initTimestamp > parseInt(swap.timestamp)) {
+        initTimestamp = parseInt(swap.timestamp);
+        initEth = parseFloat(swap.amountUSD);
+      }
+      if (trade.currentPair) {
+        if (trade.currentPair == swap.poolId) {
+          trade.pln += swap.mode === "buy" ? -parseFloat(swap.amountUSD) : parseFloat(swap.amountUSD);
+        } else {
+          trades.push(trade);
+          totalPnl += trade.pln;
+          if (trade.pln > 0) winCount += 1;
+          else loseCount += 1;
+          trade = {};
+          trade.pln = 0;
+          trade.currentPair = swap.poolId;
+          trade.pln += swap.mode === "buy" ? -parseFloat(swap.amountUSD) : parseFloat(swap.amountUSD);
+        }
+
+      } else {
+        trade.currentPair = swap.poolId;
+        trade.pln += swap.mode === "buy" ? -parseFloat(swap.amountUSD) : parseFloat(swap.amountUSD);
+      }
+
+    }
+    if (trade.pln) {
+      totalPnl += trade.pln;
+      if (trade.pln > 200) winCount += 1;
+      else loseCount += 1;
+      trades.push(trade);
+    }
+    let winRate = (winCount / (winCount + loseCount)) * 100;
+    // console.log(swaps);
+    // console.log(trades);
+    return {
+      trades: trades,
+      win: winCount,
+      lose: loseCount,
+      totalPnl: totalPnl - totalFee,
+      totalTrades: winCount + loseCount,
+      winRate: winRate,
+      initEth: initEth
+    };
+  } catch (error) {
+    return {};
+  }
+}
+
+const checkMEV = async (trader_address) => {
+  try {
+
+    let currentTimestamp = parseInt(Date.now() / 1000 - 2592000);//1,month tx
+
+    // const querySwapV2 = `
+    //   query {
+    //     swaps(
+    //       first:1000,orderBy: pair__id , orderDirection: desc,where:{ from: "${tradeAddress}",timestamp_gt:"${currentTimestamp}"}
+    //     ) {
+
+
     const querySwapV2 = `
           query {
               swaps(
-                first:50,orderBy: timestamp, orderDirection: desc,where:{ from:"${trader_address}"}
+                first:1000,orderBy: timestamp, orderDirection: desc,where:{ from:"${trader_address}",timestamp_gt:"${currentTimestamp}"}
               ) {
                   transaction{
+                      id
                       swaps{
                           id
                       }
@@ -634,9 +565,10 @@ const checkMEV = async (trader_address, version) => {
     const querySwapV3 = `
           query {
               swaps(
-                first:1000,orderBy: timestamp, orderDirection: desc,where:{ origin :"${trader_address}"}
+                first:1000,orderBy: timestamp, orderDirection: desc,where:{ origin :"${trader_address}",timestamp_gt:"${currentTimestamp}"}
               ) {
                   transaction{
+                    id
                     swaps{
                         id
                     }
@@ -644,21 +576,33 @@ const checkMEV = async (trader_address, version) => {
                }
           }        
           `;
-    const q = version == 2 ? querySwapV2 : querySwapV3;
-    const query = gql(q);
-
-    const appoloClient = APPOLO(1, version);
-    const data0 = await appoloClient.query({
-      query: query,
+    const query2 = gql(querySwapV2);
+    const appoloClient = APPOLO(1, 2);
+    const data2 = await appoloClient.query({
+      query: query2,
     });
-    if (data0?.data?.swaps.length > 0) {
+    let swap2 = data2?.data?.swaps;
+
+    const query3 = gql(querySwapV3);
+    const appoloClient3 = APPOLO(1, 3);
+    const data3 = await appoloClient3.query({
+      query: query3,
+    });
+    let swap3 = data3?.data?.swaps;
+    const swaps = swap2.concat(swap3);
+
+    if (swaps?.length > 0) {
       let mev = false;
-      for (let index = 0; index < data0?.data?.swaps.length; index++) {
-        if (data0?.data?.swaps[index].transaction.swaps.length > 1) {
+      for (let index = 0; index < swaps.length; index++) {
+        if (swaps[index].transaction.swaps.length > 1) {
           mev = true;
           break;
         }
       }
+      let txIds = swaps.map(swap => swap.transaction.id);
+      let uniqueTxs = new Set(txIds);
+      if (uniqueTxs.size !== txIds.length)
+        return true;
       return mev;
     } else {
       return false;
@@ -669,31 +613,8 @@ const checkMEV = async (trader_address, version) => {
   }
 };
 
-async function getEthBalance(trader, blockNumber) {
-  const balance = await provider.getBalance(trader, blockNumber);
-  return Number(balance) / Math.pow(10, 18);
-}
-async function test() {
-  const lp = "0xdf8ef47910ce4a196f83b86b80809f1c5201650a";
-  const trader = "0xb7Af4c452A914519529Dc3DCc00c1Fe2678f6A9b";
-  const token = "0x561cf9121e89926c27fa1cfc78dfcc4c422937a4";
-  console.log(await get_token_price_eth(token, lp, 2));
+checkMEV("0x4B042F60e2cE30F136C52a467dCCF59029eEb307")
 
-  const block = "0x" + (18580853).toString(16);
-  console.log(block)
-  const balance = await getEthBalance(trader, block);
-  console.log({ balance });
-  console.log({ balance });
-
-  console.log(
-    await getTrading(
-      lp,
-      trader,
-      token,
-      2)
-  )
-}
-// test();
 module.exports = {
   getPool,
   get_token_price,
@@ -701,5 +622,6 @@ module.exports = {
   getTotalSupply,
   getTrading,
   checkMEV,
-  checkFresh,
+  checkSwapWallet,
+  getTopAddress
 };
