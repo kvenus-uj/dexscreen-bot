@@ -17,7 +17,7 @@ async function start_get_pool() {
   console.log("...Starting to get LP address");
   let pools = [];
   const v2_pools = await getPool(
-    60 * launchtime,
+    60 * launchtime * 7,
     minlp,
     maxlp,
     minbuys,

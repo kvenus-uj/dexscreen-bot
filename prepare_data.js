@@ -6,6 +6,7 @@ async function prepareData() {
   console.log("Getting pools")
   const pools = await start_get_pool();
   const lpData = saveLpAddress(pools);
+  console.log("lpdata",lpData);
   if (lpData) {
     const wallets = await getWallets(lpData);
     saveWalletsAddress(wallets);

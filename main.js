@@ -4,18 +4,10 @@ require('events').EventEmitter.defaultMaxListeners = 15;
 
 async function start() {
   prepareData();
-  cron.schedule('*/30 * * * *', () => {
+  cron.schedule('*/240 * * * *', () => {
     prepareData();
   });
 }
-// const job = new CronJob(
-//   "00 00 00,12 * * *",
-//   start,
-//   null,
-//   true,
-//   "Europe/Helsinki"
-// );
-
-// job.start();
 start();
+
 

@@ -18,7 +18,7 @@ options.addArguments("--remote-debugging-port=9230");
 options.addArguments("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537");
 options.addArguments("--disable-blink-features");
 options.addArguments("--disable-blink-features=AutomationControlled");
-// let driver = new Builder().forBrowser("chrome").setChromeOptions(options).build();
+let driver = new Builder().forBrowser("chrome").setChromeOptions(options).build();
 
 async function getcurrentstamp() {
   try {
@@ -89,7 +89,7 @@ async function getPool(
   `;
   const queryv2 = `
   {
-        pairs(first:100,where:{
+        pairs(first:200,where:{
             createdAtTimestamp_gt:${startFrom},
             reserveETH_gt:${Number(minlp) * 2},
             reserveETH_lt:${Number(maxlp) * 2},
@@ -316,13 +316,24 @@ async function getTotalSupply(tokenAddress) {
   }
 }
 // Check erc20 tx count, it should be less than 1
-async function checkSwapWallet(targetAddress, poolAddress) {
+async function checkSwapWallet(targetAddress) {
   try {
-    let swaps2 = await getSwaps(targetAddress, 2)
-    let swaps3 = await getSwaps(targetAddress, 3)
-    if (swaps2.length + swaps3.length != 1)
+    let swaps2 = await getSwaps(targetAddress, 2);
+    let swaps3 = await getSwaps(targetAddress, 3);
+    let tradeLength = swaps2.length + swaps3.length;
+
+    let swaps = swaps2.concat(swaps3);
+
+    swaps.sort((b, a) => parseInt(a.timestamp) - parseInt(b.timestamp));
+    let sellSwaps = swaps.filter(swap => swap.mode === "sell")
+
+    if (sellSwaps.length != 1)
       return false;
-    console.log("Total trade is only 1. Checking erc20 tx count.")
+    else {
+      if (sellSwaps[0] != swaps[0])
+        return false;
+    }
+
     let targetBlockNumber = 99999999999; // Replace with your desired block number
     const apiKey = etherscankey;
 
@@ -339,7 +350,7 @@ async function checkSwapWallet(targetAddress, poolAddress) {
     const resp = await axios.get(`${apiUrl}?${queryParams}`, { keepAlive: true });
     const data = resp.data;
     const transactions = data.result;
-    if (transactions.length > 1) {
+    if (transactions.length != tradeLength) {
       console.log("Transaction length is bigger than 1.")
       return false
     }
@@ -349,6 +360,7 @@ async function checkSwapWallet(targetAddress, poolAddress) {
     return false;
   }
 }
+
 async function getSwaps(tradeAddress, version) {
   try {
     let currentTimestamp = parseInt(Date.now() / 1000 - 2592000);//1,month tx
@@ -380,7 +392,7 @@ async function getSwaps(tradeAddress, version) {
 
     const querySwapV3 = `
       query {
-        swaps(first:1000,orderBy: pool__id,where:{origin:"${tradeAddress}"}
+        swaps(first:1000,orderBy: pool__id,where:{origin:"${tradeAddress}",timestamp_gt:"${currentTimestamp}"}
         ) {
            timestamp
             origin
@@ -460,7 +472,7 @@ async function getTopAddress(lpaddress) {
     while ((match = regexPattern.exec(data)) !== null) {
       matches.push(match[0]);
 
-      if (matches.length === 20) {
+      if (matches.length === 50) {
         break;
       }
     }
@@ -489,6 +501,7 @@ const getTrading = async (targetAddress) => {
     let initTimestamp = 9999999999999999;
     for (let i = 0; i < swaps.length; i++) {
       swap = swaps[i];
+      // calcuating init eth
       if (initTimestamp > parseInt(swap.timestamp)) {
         initTimestamp = parseInt(swap.timestamp);
         initEth = parseFloat(swap.amountUSD);
@@ -496,11 +509,15 @@ const getTrading = async (targetAddress) => {
       if (trade.currentPair) {
         if (trade.currentPair == swap.poolId) {
           trade.pln += swap.mode === "buy" ? -parseFloat(swap.amountUSD) : parseFloat(swap.amountUSD);
+          if (swap.mode === "buy")
+            trade.airdrop = false;
         } else {
-          trades.push(trade);
-          totalPnl += trade.pln;
-          if (trade.pln > 0) winCount += 1;
-          else loseCount += 1;
+          if (!trade.airdrop) {
+            trades.push(trade);
+            totalPnl += trade.pln;
+            if (trade.pln > 0) winCount += 1;
+            else loseCount += 1;
+          }
           trade = {};
           trade.pln = 0;
           trade.currentPair = swap.poolId;
@@ -508,20 +525,21 @@ const getTrading = async (targetAddress) => {
         }
 
       } else {
+        trade.airdrop = true;
         trade.currentPair = swap.poolId;
         trade.pln += swap.mode === "buy" ? -parseFloat(swap.amountUSD) : parseFloat(swap.amountUSD);
       }
 
     }
     if (trade.pln) {
-      totalPnl += trade.pln;
-      if (trade.pln > 200) winCount += 1;
-      else loseCount += 1;
-      trades.push(trade);
+      if (!trade.airdrop) {
+        totalPnl += trade.pln;
+        if (trade.pln > 200) winCount += 1;
+        else loseCount += 1;
+        trades.push(trade);
+      }
     }
     let winRate = (winCount / (winCount + loseCount)) * 100;
-    // console.log(swaps);
-    // console.log(trades);
     return {
       trades: trades,
       win: winCount,
@@ -536,17 +554,12 @@ const getTrading = async (targetAddress) => {
   }
 }
 
+// getTrading("0x25822A1568cccc76Ade16b23864E99BE8e7954bb")
+
 const checkMEV = async (trader_address) => {
   try {
 
     let currentTimestamp = parseInt(Date.now() / 1000 - 2592000);//1,month tx
-
-    // const querySwapV2 = `
-    //   query {
-    //     swaps(
-    //       first:1000,orderBy: pair__id , orderDirection: desc,where:{ from: "${tradeAddress}",timestamp_gt:"${currentTimestamp}"}
-    //     ) {
-
 
     const querySwapV2 = `
           query {
@@ -613,7 +626,7 @@ const checkMEV = async (trader_address) => {
   }
 };
 
-checkMEV("0x4B042F60e2cE30F136C52a467dCCF59029eEb307")
+// checkMEV("0x4B042F60e2cE30F136C52a467dCCF59029eEb307")
 
 module.exports = {
   getPool,

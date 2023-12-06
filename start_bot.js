@@ -76,7 +76,7 @@ async function send_notification() {
     console.log("There is no Wallet address!");
   }
 
-  for (let index = 0; index < wallet_data.length; index++){
+  for (let index = 0; index < wallet_data.length; index++) {
     sendWalletMessage(wallet_data[index]);
     await delay(1000);
   }

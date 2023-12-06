@@ -36,8 +36,9 @@ function sendWalletMessage(wallet_info) {
   message += `🏆 Trader : <a href="https://etherscan.io/address/${wallet_info.address}"> ${replaceBetween(
     wallet_info.address
   )}</a>\n\n`;
-  message += `☑️ Wallet top trader number ${wallet_info.top_rate} on <a href="https://etherscan.io/address/${wallet_info.token_address}"> ${wallet_info.token_name
-    } </a>token,\n\n\t\t${wallet_info.reason}\n\n`;
+  // message += `☑️ Wallet top trader number ${wallet_info.top_rate} on <a href="https://etherscan.io/address/${wallet_info.token_address}"> ${wallet_info.token_name
+  //   } </a>token,\n\n\t\t${wallet_info.reason}\n\n`;
+  message += `\n\n\t\t${wallet_info.reason}\n\n`;
   sendMessage(message);
 }
 

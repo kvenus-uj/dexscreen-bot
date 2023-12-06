@@ -9,17 +9,16 @@ const subgraph = {
     3: "https://api.thegraph.com/subgraphs/name/uniswap/uniswap-v3",
   },
 };
-
 module.exports = {
+  weht:"0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
   tg_api: "6541860767:AAHi65eyMtImEfTQQAgGkvBdJW-MJTW4qOY",
-  chat_id: -4020222678, //4085571318,
-  morails_key:
-    "3pPLbAJU77QC0ASflpRvGVCWEjHNSCpwT3k7OtrhSMo2iYo4Y2GykSLtQtlyfBYO",
-  duneapikey: "umYKvUbhI4m7xCJMFmj7qQo0QNvozglu",
-  etherscankey: "RZJ3AXFEQTP3TZB43RJJHYNXE6338VSCVW",
-  wss: {
-    [1]: "wss://mainnet.infura.io/ws/v3/c558761fd1204a879c54d5187f0ef53f",
-  },
+  chat_id: -4082724720, //4085571318,
+  // chat_id: -4072982727, //4085571318,
+  etherscankey: "TQFRWS7IZAZTZE8XYXKCAI6R17BYISAP2D",
+  apiUrl: "https://api.etherscan.io/api",
+  providerUrl: "https://rpc.ankr.com/eth/709ed46cfa73f4def46d75a198bd5bc78fafa7dff95a4dc8c40d1af6660a4681",
+  nodeProviderUrl: "https://eth.getblock.io/7c14aadb-9524-4852-a2c1-5036e1f9c6f4/mainnet/",
+
   APPOLO: (chainId, version) => {
     const defaultOptions = {
       watchQuery: {
